@@ -1,19 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::Encode;
 use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, ensure,
-    traits::{
-        schedule::{DispatchTime, Named as ScheduleNamed},
-        Currency, ExistenceRequirement, LockIdentifier,
-    },
-    Parameter,
+    traits::{Currency, ExistenceRequirement},
 };
-use frame_system::{ensure_root, ensure_signed, RawOrigin};
-use sp_runtime::{traits::Dispatchable, traits::StaticLookup, DispatchResult};
-use ternoa_common::traits::{
-    CapsuleCreationEnabled, CapsuleDefaultBuilder, CapsuleTransferEnabled,
-};
+use frame_system::ensure_signed;
+use ternoa_common::traits::{CapsuleCreationEnabled, CapsuleTransferEnabled};
 
 pub trait Trait: frame_system::Trait {
     /// Because this pallet emits events, it depends on the runtime's definition of an event.
@@ -22,21 +14,7 @@ pub trait Trait: frame_system::Trait {
     type Currency: Currency<Self::AccountId>;
     /// Pallet managing capsules.
     type Capsules: CapsuleTransferEnabled<AccountId = Self::AccountId>
-        + CapsuleCreationEnabled<
-            AccountId = Self::AccountId,
-            CapsuleID = CapsuleIDOf<Self>,
-            CapsuleData = Self::CapsuleData,
-        >;
-    /// How a capsule's data is represented. Mostly used for benchmarks when passed to the
-    /// `CapsuleCreationEnabled` trait.
-    type CapsuleData: Parameter + CapsuleDefaultBuilder<Self::AccountId>;
-    /// Scheduler instance which we use to schedule actual transfer calls. This way, we have
-    /// all scheduled calls accross all pallets in one place.
-    type Scheduler: ScheduleNamed<Self::BlockNumber, Self::PalletsCall, Self::PalletsOrigin>;
-    /// Overarching type of all pallets origins. Used with the scheduler.
-    type PalletsOrigin: From<RawOrigin<Self::AccountId>>;
-    /// Overarching type of all pallets calls. Used by the scheduler.
-    type PalletsCall: Dispatchable<Origin = Self::Origin> + From<Call<Self>>;
+        + CapsuleCreationEnabled<AccountId = Self::AccountId, CapsuleID = CapsuleIDOf<Self>>;
 }
 
 type BalanceOf<T> =
