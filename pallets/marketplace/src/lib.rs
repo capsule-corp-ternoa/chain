@@ -5,7 +5,7 @@ use frame_support::{
     decl_error, decl_event, decl_module, decl_storage, ensure,
     traits::{
         schedule::{DispatchTime, Named as ScheduleNamed},
-        Currency, LockIdentifier,
+        Currency, ExistenceRequirement, LockIdentifier,
     },
     Parameter,
 };
@@ -46,6 +46,7 @@ type CapsuleIDOf<T> = <<T as Trait>::Capsules as CapsuleTransferEnabled>::Capsul
 decl_event!(
     pub enum Event<T>
     where
+        AccountId = <T as frame_system::Trait>::AccountId,
         Balance = BalanceOf<T>,
         CapsuleID = CapsuleIDOf<T>,
     {
@@ -53,13 +54,15 @@ decl_event!(
         CapsuleListed(CapsuleID, Balance),
         /// A capusle is removed from the marketplace by its owner. \[capsule id\]
         CapsuleUnlisted(CapsuleID),
+        /// A capsule has been sold. \[capsule id, new owner\]
+        CapsuleSold(CapsuleID, AccountId),
     }
 );
 
 decl_storage! {
     trait Store for Module<T: Trait> as Marketplace {
         /// Capsules listed on the marketplace
-        pub Capsules get(fn capules): map hasher(blake2_128_concat) CapsuleIDOf<T> => BalanceOf<T>;
+        pub CapsulesForSale get(fn capules_for_sale): map hasher(blake2_128_concat) CapsuleIDOf<T> => (T::AccountId, BalanceOf<T>);
     }
 }
 
@@ -83,7 +86,7 @@ decl_module! {
             ensure!(T::Capsules::is_owner(who.clone(), capsule_id), Error::<T>::NotCapsuleOwner);
 
             T::Capsules::lock(capsule_id)?;
-            Capsules::<T>::insert(capsule_id, price);
+            CapsulesForSale::<T>::insert(capsule_id, (who.clone(), price));
 
             Self::deposit_event(RawEvent::CapsuleListed(capsule_id, price));
         }
@@ -93,12 +96,26 @@ decl_module! {
         fn unlist(origin, capsule_id: CapsuleIDOf<T>) {
             let who = ensure_signed(origin)?;
             ensure!(T::Capsules::is_owner(who.clone(), capsule_id), Error::<T>::NotCapsuleOwner);
-            ensure!(Capsules::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
+            ensure!(CapsulesForSale::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
 
             T::Capsules::unlock(capsule_id)?;
-            Capsules::<T>::remove(capsule_id);
+            CapsulesForSale::<T>::remove(capsule_id);
 
             Self::deposit_event(RawEvent::CapsuleUnlisted(capsule_id));
+        }
+
+        /// Buy a listed capsule
+        #[weight = 0]
+        fn buy(origin, capsule_id: CapsuleIDOf<T>) {
+            let who = ensure_signed(origin)?;
+            ensure!(CapsulesForSale::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
+
+            let (owner, price) = CapsulesForSale::<T>::get(capsule_id);
+            // KeepAlive because they need to be able to use the NFT later on
+            T::Currency::transfer(&who, &owner, price, ExistenceRequirement::KeepAlive)?;
+            T::Capsules::transfer_from(owner.clone(), who.clone(), capsule_id)?;
+
+            Self::deposit_event(RawEvent::CapsuleSold(capsule_id, who));
         }
     }
 }
