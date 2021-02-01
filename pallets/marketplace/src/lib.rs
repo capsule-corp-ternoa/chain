@@ -51,6 +51,8 @@ decl_event!(
     {
         /// A capsule has been listed for sale. \[capsule id, price\]
         CapsuleListed(CapsuleID, Balance),
+        /// A capusle is removed from the marketplace by its owner. \[capsule id\]
+        CapsuleUnlisted(CapsuleID),
     }
 );
 
@@ -65,6 +67,8 @@ decl_error! {
     pub enum Error for Module<T: Trait> {
         /// This function is reserved to the owner of a capsule.
         NotCapsuleOwner,
+        /// Capsule is not present on the marketplace
+        CapsuleNotForSale,
     }
 }
 
@@ -82,6 +86,19 @@ decl_module! {
             Capsules::<T>::insert(capsule_id, price);
 
             Self::deposit_event(RawEvent::CapsuleListed(capsule_id, price));
+        }
+
+        /// Owner unlist the capsules
+        #[weight = 0]
+        fn unlist(origin, capsule_id: CapsuleIDOf<T>) {
+            let who = ensure_signed(origin)?;
+            ensure!(T::Capsules::is_owner(who.clone(), capsule_id), Error::<T>::NotCapsuleOwner);
+            ensure!(Capsules::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
+
+            T::Capsules::unlock(capsule_id)?;
+            Capsules::<T>::remove(capsule_id);
+
+            Self::deposit_event(RawEvent::CapsuleUnlisted(capsule_id));
         }
     }
 }
