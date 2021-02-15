@@ -21,7 +21,7 @@ ternoa-common = { default-features = false, path = "../../common" }
 pallet-scheduler = "2.0.0"
 sp-core = "2.0.0"
 sp-io = "2.0.0"
-ternoa-capsules = { path = "../capsules" }
+ternoa-nfts = { path = "../nfts" }
 
 [features]
 default = ["std"]

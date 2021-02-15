@@ -5,51 +5,53 @@ use frame_support::{
     traits::{Currency, ExistenceRequirement},
 };
 use frame_system::ensure_signed;
-use ternoa_common::traits::{CapsuleCreationEnabled, CapsuleTransferEnabled};
+use ternoa_common::traits::{LockableNFTs, NFTs};
 
 pub trait Trait: frame_system::Trait {
     /// Because this pallet emits events, it depends on the runtime's definition of an event.
     type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
-    /// Currency used to handle transactions and pay for the capsules.
+    /// Currency used to handle transactions and pay for the nfts.
     type Currency: Currency<Self::AccountId>;
-    /// Pallet managing capsules.
-    type Capsules: CapsuleTransferEnabled<AccountId = Self::AccountId>
-        + CapsuleCreationEnabled<AccountId = Self::AccountId, CapsuleID = CapsuleIDOf<Self>>;
+    /// Pallet managing nfts.
+    type Nfts: LockableNFTs<AccountId = Self::AccountId>;
+
+    type Data: NFTs<Self::AccountId> as Data
+
 }
 
 type BalanceOf<T> =
     <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
-type CapsuleIDOf<T> = <<T as Trait>::Capsules as CapsuleTransferEnabled>::CapsuleID;
+type NftIDOf<T> = <<T as Trait>::NFTs as LockableNFTs>::NFTId;
 
 decl_event!(
     pub enum Event<T>
     where
         AccountId = <T as frame_system::Trait>::AccountId,
         Balance = BalanceOf<T>,
-        CapsuleID = CapsuleIDOf<T>,
+        NftID = NftIDOf<T>,
     {
-        /// A capsule has been listed for sale. \[capsule id, price\]
-        CapsuleListed(CapsuleID, Balance),
-        /// A capusle is removed from the marketplace by its owner. \[capsule id\]
-        CapsuleUnlisted(CapsuleID),
-        /// A capsule has been sold. \[capsule id, new owner\]
-        CapsuleSold(CapsuleID, AccountId),
+        /// A nft has been listed for sale. \[nft id, price\]
+        NftListed(NftID, Balance),
+        /// A nft is removed from the marketplace by its owner. \[nft id\]
+        NftUnlisted(NftID),
+        /// A nft has been sold. \[nft id, new owner\]
+        NftSold(NftID, AccountId),
     }
 );
 
 decl_storage! {
     trait Store for Module<T: Trait> as Marketplace {
-        /// Capsules listed on the marketplace
-        pub CapsulesForSale get(fn capules_for_sale): map hasher(blake2_128_concat) CapsuleIDOf<T> => (T::AccountId, BalanceOf<T>);
+        /// Nfts listed on the marketplace
+        pub NftsForSale get(fn nft_for_sale): map hasher(blake2_128_concat) NftIDOf<T> => (T::AccountId, BalanceOf<T>);
     }
 }
 
 decl_error! {
     pub enum Error for Module<T: Trait> {
-        /// This function is reserved to the owner of a capsule.
-        NotCapsuleOwner,
-        /// Capsule is not present on the marketplace
-        CapsuleNotForSale,
+        /// This function is reserved to the owner of a nft.
+        NotNftOwner,
+        /// Nft is not present on the marketplace
+        NftNotForSale,
     }
 }
 
@@ -57,43 +59,47 @@ decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         fn deposit_event() = default;
 
-        /// Deposit a capsule and list it on the marketplace
+        /// Deposit a nft and list it on the marketplace
         #[weight = 0]
-        fn list(origin, capsule_id: CapsuleIDOf<T>, price: BalanceOf<T>) {
+        fn list(origin, nft_id: NftIDOf<T>, price: BalanceOf<T>) {
             let who = ensure_signed(origin)?;
-            ensure!(T::Capsules::is_owner(who.clone(), capsule_id), Error::<T>::NotCapsuleOwner);
+            let mut data = <dyn NFTs as Trait>::Data::<T>::get(nft_id);
 
-            T::Capsules::lock(capsule_id)?;
-            CapsulesForSale::<T>::insert(capsule_id, (who.clone(), price));
+            ensure!(data.owner == &who, Error::<T>::NotNftOwner);
 
-            Self::deposit_event(RawEvent::CapsuleListed(capsule_id, price));
+            T::NFTs::lock(nft_id)?;
+            NFTsForSale::<T>::insert(nft_id, (who.clone(), price));
+
+            Self::deposit_event(RawEvent::NftListed(nft_id, price));
         }
 
-        /// Owner unlist the capsules
+        /// Owner unlist the nfts
         #[weight = 0]
-        fn unlist(origin, capsule_id: CapsuleIDOf<T>) {
+        fn unlist(origin, nft_id: NftIDOf<T>) {
             let who = ensure_signed(origin)?;
-            ensure!(T::Capsules::is_owner(who.clone(), capsule_id), Error::<T>::NotCapsuleOwner);
-            ensure!(CapsulesForSale::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
+            let mut data = NFTs::Data::<T>::get(nft_id);
 
-            T::Capsules::unlock(capsule_id)?;
-            CapsulesForSale::<T>::remove(capsule_id);
+            ensure!(data.owner == &who, Error::<T>::NotNftOwner);
+            ensure!(NftsForSale::<T>::contains_key(nft_id), Error::<T>::NFTNotForSale);
 
-            Self::deposit_event(RawEvent::CapsuleUnlisted(capsule_id));
+            T::Nfts::unlock(nft_id)?;
+            NftsForSale::<T>::remove(nft_id);
+
+            Self::deposit_event(RawEvent::NftUnlisted(nft_id));
         }
 
-        /// Buy a listed capsule
+        /// Buy a listed nft
         #[weight = 0]
-        fn buy(origin, capsule_id: CapsuleIDOf<T>) {
+        fn buy(origin, nft_id: NftIDOf<T>) {
             let who = ensure_signed(origin)?;
-            ensure!(CapsulesForSale::<T>::contains_key(capsule_id), Error::<T>::CapsuleNotForSale);
+            ensure!(NftsForSale::<T>::contains_key(nft_id), Error::<T>::NftNotForSale);
 
-            let (owner, price) = CapsulesForSale::<T>::get(capsule_id);
+            let (owner, price) = NftsForSale::<T>::get(nft_id);
             // KeepAlive because they need to be able to use the NFT later on
             T::Currency::transfer(&who, &owner, price, ExistenceRequirement::KeepAlive)?;
-            T::Capsules::transfer_from(owner.clone(), who.clone(), capsule_id)?;
+            T::Nfts::transfer(owner.clone(), nft_id, who.clone())?;
 
-            Self::deposit_event(RawEvent::CapsuleSold(capsule_id, who));
+            Self::deposit_event(RawEvent::NftSold(nft_id, who));
         }
     }
 }
